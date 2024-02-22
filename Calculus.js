@@ -612,11 +612,11 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                             break;
                         case ASEC:
                             var arg = String(symbol.args[0]);
-                            symbol = _.parse('1/(sqrt(1-(' + arg + ')^2)*abs(' + arg + '))');
+                            symbol = _.parse('1/(abs(' + arg + ')*sqrt(1-(' + arg + ')^2))');
                             break;
                         case ACSC:
                             var arg = String(symbol.args[0]);
-                            symbol = _.parse('-1/(sqrt(1-(' + arg + ')^2)*abs(' + arg + '))');
+                            symbol = _.parse('-1/(abs(' + arg + ')*sqrt(1-(' + arg + ')^2))');
                             break;
                         case ACOT:
                             symbol = _.parse('-1/((' + symbol.args[0] + ')^2+1)');
