@@ -75,6 +75,12 @@ declare namespace nerdamer {
 	export function convertFromLaTeX(TeX: string): Expression
 
 	/**
+	 * Attempts to simplify an expression.
+	 * @param expression The expression being simplified.
+	 */
+	export function simplify(expression: ExpressionParam): Expression
+
+	/**
 	 * Each time an expression is parsed nerdamer stores the result. Use this method to get back stored expressions.
 	 * @param asObject Pass in true to get expressions as numbered object with 1 as starting index
 	 * @param asLatex Pass in the string "LaTeX" to get the expression to LaTeX, otherwise expressions come back as strings
@@ -427,4 +433,5 @@ return _.multiply(sum, product)
 	 * @param expression
 	 */
 	export function factor(expression: ExpressionParam): Expression
+
 }
