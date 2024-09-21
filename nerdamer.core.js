@@ -5,7 +5,7 @@
  * Source : https://github.com/jiggzson/nerdamer
  */
 
-/* global trig, trigh, Infinity, define, arguments2Array, NaN */
+/* global trig, trigh, Infinity, define, arguments2Array, NaN  */
 //externals ====================================================================
 /* BigInterger.js v1.6.40 https://github.com/peterolson/BigInteger.js/blob/master/LICENSE */
 //var nerdamerBigInt = typeof nerdamerBigInt !== 'undefined' ? nerdamerBigInt : require("big-integer");
@@ -16,7 +16,7 @@ var nerdamer = (function (imports) {
     "use strict"; 
 
 //version ======================================================================
-    var version = '1.1.13';
+    var version = '1.1.16';
 
     
 
@@ -79,6 +79,8 @@ var nerdamer = (function (imports) {
         USE_MULTICHARACTER_VARS: true,
         //Allow changing of power operator
         POWER_OPERATOR: '^',
+        // Function catch regex
+        FUNCTION_REGEX: /^\s*([a-z_][a-z0-9_]*)\(([a-z0-9_,\s]*)\)\s*:?=\s*(.+)\s*$/i,
         //The variable validation regex
         //VALIDATION_REGEX: /^[a-z_][a-z\d\_]*$/i
         VALIDATION_REGEX: /^[a-z_αAβBγΓδΔϵEζZηHθΘιIκKλΛμMνNξΞoOπΠρPσΣτTυϒϕΦχXψΨωΩ∞][0-9a-z_αAβBγΓδΔϵEζZηHθΘιIκKλΛμMνNξΞoOπΠρPσΣτTυϒϕΦχXψΨωΩ]*$/i,
@@ -165,14 +167,14 @@ var nerdamer = (function (imports) {
     //Add the groups. These have been reorganized as of v0.5.1 to make CP the highest group
     //The groups that help with organizing during parsing. Note that for FN is still a function even
     //when it's raised to a symbol, which typically results in an EX
-    var N = Groups.N = 1, // A number
-            P = Groups.P = 2, // A number with a rational power e.g. 2^(3/5).
-            S = Groups.S = 3, // A single variable e.g. x.
-            EX = Groups.EX = 4, // An exponential
-            FN = Groups.FN = 5, // A function
-            PL = Groups.PL = 6, // A symbol/expression having same name with different powers e.g. 1/x + x^2
-            CB = Groups.CB = 7, // A symbol/expression composed of one or more variables through multiplication e.g. x*y
-            CP = Groups.CP = 8; // A symbol/expression composed of one variable and any other symbol or number x+1 or x+y
+    var N = Groups.N = 1; // A number
+    var P = Groups.P = 2; // A number with a rational power e.g. 2^(3/5).
+    var S = Groups.S = 3; // A single variable e.g. x.
+    var EX = Groups.EX = 4; // An exponential
+    var FN = Groups.FN = 5; // A function
+    var PL = Groups.PL = 6; // A symbol/expression having same name with different powers e.g. 1/x + x^2
+    var CB = Groups.CB = 7; // A symbol/expression composed of one or more variables through multiplication e.g. x*y
+    var CP = Groups.CP = 8; // A symbol/expression composed of one variable and any other symbol or number x+1 or x+y
 
     var CONST_HASH = Settings.CONST_HASH = '#';
 
@@ -196,6 +198,8 @@ var nerdamer = (function (imports) {
     var RESERVED = [];
 
     var WARNINGS = [];
+
+    var USER_FUNCTIONS = [];
 
     /**
      * Use this when errors are suppressible
@@ -700,28 +704,86 @@ var nerdamer = (function (imports) {
     };
 
     /**
-     * Is used to set a user defined function using the function assign operator
-     * @param {String} name
-     * @param {String[]} params_array
-     * @param {String} body
-     * @returns {Boolean}
+     * Is used to set a user defined function using the function assign operator and also
+     * is used to set a user defined JavaScript function using the function assign operator
+     * @param {string | Function} fnName
+     * @param {string[]} [fnParams]
+     * @param {string} [fnBody]
+     * @returns {boolean}
      */
-    var setFunction = function (name, params_array, body) {
-        validateName(name);
-        if(!isReserved(name)) {
-            params_array = params_array || variables(_.parse(body));
+    var setFunction = function (fnName, fnParams, fnBody) {
+        if (!fnParams) {
+            var fnNameType = typeof fnName;
+
+            // Option setFunction('f(x)=x^2+2'), setFunction('f(x):=x^2+2')
+            if (fnNameType === 'string') {
+                if (!/:?=/.test(fnName)) {
+                    return false;
+                }
+
+                var match = Settings.FUNCTION_REGEX.exec(fnName);
+                if (!match) {
+                    return false;
+                }
+                var [, fName, fParams, fBody] = match;
+                fnName = fName;
+                fnParams = fParams.split(',').map(arg => arg.trim());
+                fnBody = fBody;
+            }
+
+            // Option setFunction(function fox(x) { return x^2; })
+            else if (fnNameType === 'function') {
+                var jsFunction = fnName;
+                var jsName = jsFunction.name;
+                validateName(jsName);
+                if (!isReserved(jsName)) {
+                    C.Math2[jsName] = jsFunction;
+                    _.functions[jsName] = [, jsFunction.length];
+
+                    if (!USER_FUNCTIONS.includes(jsName)) {
+                        USER_FUNCTIONS.push(jsName);
+                    }
+                    return true;
+                }
+                return false;
+            } else {
+                return false;
+            }
+        }
+
+        fnName = fnName.trim();
+        validateName(fnName);
+
+        // Option setFunction('f(x)', ['x'], 'x^2+2') or setFunction('f(x)=x^2+2'), setFunction('f(x):=x^2+2')
+        if(!isReserved(fnName)) {
+            fnParams = fnParams || variables(_.parse(fnBody));
+            fnParams = fnParams.map((p) => p.trim());
             // The function gets set to PARSER.mapped function which is just
             // a generic function call.
-            _.functions[name] = [_.mapped_function, params_array.length, {
-                    name: name,
-                    params: params_array,
-                    body: body
+            _.functions[fnName] = [_.mapped_function, fnParams.length, {
+                    name: fnName,
+                    params: fnParams,
+                    body: fnBody
                 }];
 
-            return body;
+            if (!USER_FUNCTIONS.includes(fnName)) {
+                USER_FUNCTIONS.push(fnName);
+            }
+
+            return true;
         }
-        return null;
+        return false;
     };
+
+    /**
+     * Clears all user defined functions
+     */
+    var clearFunctions = function () {
+        for(var name of USER_FUNCTIONS) {
+            delete C.Math2[name];
+            delete _.functions[name];
+        }
+    }
 
     /**
      * Returns the minimum number in an array
@@ -1763,6 +1825,7 @@ var nerdamer = (function (imports) {
                     }
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     //reset factors
                     factors = {};
                     add(input);
@@ -1972,6 +2035,7 @@ var nerdamer = (function (imports) {
                 retval = integrate(f, a, b, tol, maxdepth);
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 /*fallback to non-adaptive*/
                 return Math2.simpson(f, a, b);
             }
@@ -2536,6 +2600,7 @@ var nerdamer = (function (imports) {
                 return obj.toString();
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return '';
             }
         }
@@ -2663,6 +2728,7 @@ var nerdamer = (function (imports) {
 
             //Enable getting of expressions using the % so for example %1 should get the first expression
             if(typeof first_arg === 'string') {
+                //TODO Replace substr with slice, and test it
                 expression = (first_arg.charAt(0) === '%') ? Expression.getExpression(first_arg.substr(1)).text() : first_arg;
             }
             else if(first_arg instanceof Expression || isSymbol(first_arg)) {
@@ -2725,6 +2791,7 @@ var nerdamer = (function (imports) {
                 return this.symbol.toString();
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return '';
             }
         },
@@ -2790,6 +2857,7 @@ var nerdamer = (function (imports) {
                 return d.equals(0);
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return false;
             }
             ;
@@ -2802,6 +2870,7 @@ var nerdamer = (function (imports) {
                 return d.lessThan(0);
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return false;
             }
             ;
@@ -2814,6 +2883,7 @@ var nerdamer = (function (imports) {
                 return d.greaterThan(0);
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return false;
             }
         },
@@ -3002,6 +3072,7 @@ var nerdamer = (function (imports) {
                     this.den = bigInt(1);
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     return Frac.simple(n);
                 }
             }
@@ -3012,6 +3083,7 @@ var nerdamer = (function (imports) {
             }
         }
         catch(e) {
+            if (e.message === "timeout") throw error;
             return Frac.simple(n);
         }
 
@@ -3255,6 +3327,8 @@ var nerdamer = (function (imports) {
      * @returns {Symbol}
      */
     function Symbol(obj) {
+        checkTimeout();
+
         var isInfinity = obj === 'Infinity';
         // This enables the class to be instantiated without the new operator
         if(!(this instanceof Symbol)) {
@@ -3362,35 +3436,39 @@ var nerdamer = (function (imports) {
     };
     Symbol.prototype = {
         pushMinus: function() {
-            if ((this.group === CB || this.group === CP || this.group === PL) &&
+            let retval = this;
+            if (((this.group === CB) ||
+                this.group === CP || this.group === PL) &&
                 this.multiplier.lessThan(0) && !even(this.power)) {
                 // console.log();
                 // console.log("replacing "+this.text("fractions"))
-                let m = this.multiplier.clone();
+                retval = this.clone();
+                let m = retval.multiplier.clone();
                 m.negate();
                 // console.log("  negated multiplier: "+m)
-                this.toUnitMultiplier();
+                retval.toUnitMultiplier();
             
                 // console.log("  unit main part: "+this)
-                for (let termkey in this.symbols) {
-                    this.symbols[termkey] = this.symbols[termkey].clone().negate();
+                for (let termkey in retval.symbols) {
+                    retval.symbols[termkey] = retval.symbols[termkey].clone().negate();
                     // console.log("  negated term: "+this.symbols[termkey])
-                    if (this.group === CB) {
+                    if (retval.group === CB) {
                         // console.log("  is CB, breaking");
                         break;
                     }
                 }
-                
-                // console.log("  negated main part: "+this)
-                this.multiplier = m;
 
-                // console.log("  combined: "+this.text("fractions"));
-                if (this.length > 0) {
-                    this.each(c => c.pushMinus);
+                // console.log("  combined: "+retval.text("fractions"));
+                if (retval.length > 0) {
+                    retval.each(c => c.pushMinus());
                     // console.log("  result: "+this.text("fractions"));
                 }
+                
+                // console.log("  negated main part: "+retval)
+                retval = _.parse(retval);
+                retval = _.multiply(_.parse(m), retval);
             }
-            return this;
+            return retval;
         },
         
         /**
@@ -3918,8 +3996,15 @@ var nerdamer = (function (imports) {
          * @returns {Symbol}
          */
         imagpart: function () {
-            if(this.group === S && this.isImaginary())
-                return new Symbol(this.multiplier);
+            if(this.group === S && this.isImaginary()) {
+                let x = this;
+                if (this.power.isNegative()) {
+                    x = this.clone();
+                    x.power.negate();
+                    x.multiplier.negate()
+                }
+                return new Symbol(x.multiplier);
+            }
             if(this.isComposite()) {
                 var retval = new Symbol(0);
                 this.each(function (x) {
@@ -6122,6 +6207,7 @@ var nerdamer = (function (imports) {
 //            }
 //            else {
             if(!fn) {
+                // Call JS function
                 //Remember assumption 1. No function defined so it MUST be numeric in nature
                 fn = findFunction(fn_name);
                 if(Settings.PARSE2NUMBER && numericArgs)
@@ -6130,6 +6216,7 @@ var nerdamer = (function (imports) {
                     retval = _.symfunction(fn_name, args);
             }
             else {
+                // Call nerdamer function
                 //Remember assumption 2. The function is defined so it MUST handle all aspects including numeric values
                 retval = fn.apply(fn_settings[2], args);
             }
@@ -6943,6 +7030,7 @@ var nerdamer = (function (imports) {
                 return retval;
             }
             catch(error) {
+                if (error.message === "timeout") throw error;
                 var rethrowErrors = [OutOfFunctionDomainError];
                 // Rethrow certain errors in the same class to preserve them
                 rethrowErrors.forEach(function (E) {
@@ -7667,6 +7755,8 @@ var nerdamer = (function (imports) {
             if(!isSymbol(symbol)) {
                 symbol = _.parse(symbol);
             }
+
+            const original = _.symfunction('sqrt', [symbol]);
             
             // Exit early for EX
             if(symbol.group === EX) {
@@ -7810,8 +7900,10 @@ var nerdamer = (function (imports) {
                     retval = _.multiply(img, retval);
             }
 
-            if(is_negative && Settings.PARSE2NUMBER)
+            if(is_negative && Settings.PARSE2NUMBER &&
+                retval.text() !== original.text()) {
                 return _.parse(retval);
+            }
 
             return retval;
         }
@@ -8007,15 +8099,35 @@ var nerdamer = (function (imports) {
             var re = symbol.realpart();
             var im = symbol.imagpart();
             if(re.isConstant() && im.isConstant()) {
-                if(im.equals(0) && re.equals(-1)) {
-                    return _.parse('pi');
+                // right angles
+                if(im.equals(0) && re.equals(1)) {
+                    return _.parse('0');
                 }
                 else if(im.equals(1) && re.equals(0)) {
                     return _.parse('pi/2');
                 }
+                if(im.equals(0) && re.equals(-1)) {
+                    return _.parse('pi');
+                }
+                else if(im.equals(-1) && re.equals(0)) {
+                    return _.parse('-pi/2');
+                }
+
+                // 45 degrees
                 else if(im.equals(1) && re.equals(1)) {
                     return _.parse('pi/4');
                 }
+                else if(im.equals(1) && re.equals(-1)) {
+                    return _.parse('pi*3/4');
+                }
+                else if(im.equals(-1) && re.equals(1)) {
+                    return _.parse('-pi/4');
+                }
+                else if(im.equals(-1) && re.equals(-1)) {
+                    return _.parse('-pi*3/4');
+                }
+                
+                // all the rest
                 return new Symbol(Math.atan2(im, re));
             }
             return _.symfunction('atan2', [im, re]);
@@ -8061,6 +8173,7 @@ var nerdamer = (function (imports) {
                 }
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return original;
             }
         }
@@ -8318,6 +8431,7 @@ var nerdamer = (function (imports) {
                     n = Frac.simple(n);
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     n = new Frac(n);
                 }
             }
@@ -8539,6 +8653,7 @@ var nerdamer = (function (imports) {
                 return retval;
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return original;
             }
 
@@ -9465,7 +9580,7 @@ var nerdamer = (function (imports) {
                         }
                     }
                     else {
-                        result = b.clone().toUnitMultiplier();
+                        result = b.clone().toUnitMultiplier(true);
                     }
                 }
 
@@ -12151,52 +12266,58 @@ var nerdamer = (function (imports) {
      * @returns {Expression}
      */
     var libExports = function (expression, subs, option, location) {
-        // Initiate the numer flag
-        var numer = false;
+        armTimeout();
+        try {
+            // Initiate the numer flag
+            var numer = false;
 
-        // Is the user declaring a function?
-        var fndec = /^([a-z_][a-z\d\_]*)\(([a-z_,\s]*)\):=(.+)$/gi.exec(expression);
-        if(fndec)
-            return nerdamer.setFunction(fndec[1], fndec[2].split(','), fndec[3]);
-
-        // var variable, fn, args;
-        // Convert any expression passed in to a string
-        if(expression instanceof Expression)
-            expression = expression.toString();
-
-        // Convert it to an array for simplicity
-        if(!isArray(option)) {
-            option = typeof option === 'undefined' ? [] : [option];
-        }
-
-        option.forEach(function (o) {
-            // Turn on the numer flag if requested
-            if(o === 'numer') {
-                numer = true;
-                return;
+            // Is the user declaring a function? Try to add user function
+            if (setFunction(expression)) {
+                return nerdamer;
             }
-            // Wrap it in a function if requested. This only holds true for
-            // functions that take a single argument which is the expression
-            var f = _.functions[option];
-            // If there's a function and it takes a single argument, then wrap
-            // the expression in it
-            if(f && f[1] === 1) {
-                expression = `${o}(${expression})`;
+
+            // var variable, fn, args;
+            // Convert any expression passed in to a string
+            if (expression instanceof Expression) {
+                expression = expression.toString();
             }
-        });
 
-        var e = block('PARSE2NUMBER', function () {
-            return _.parse(expression, subs);
-        }, numer || Settings.PARSE2NUMBER);
+            // Convert it to an array for simplicity
+            if(!isArray(option)) {
+                option = typeof option === 'undefined' ? [] : [option];
+            }
 
-        if(location) {
-            EXPRESSIONS[location - 1] = e;
+            option.forEach(function (o) {
+                // Turn on the numer flag if requested
+                if(o === 'numer') {
+                    numer = true;
+                    return;
+                }
+                // Wrap it in a function if requested. This only holds true for
+                // functions that take a single argument which is the expression
+                var f = _.functions[option];
+                // If there's a function and it takes a single argument, then wrap
+                // the expression in it
+                if(f && f[1] === 1) {
+                    expression = `${o}(${expression})`;
+                }
+            });
+
+            var e = block('PARSE2NUMBER', function () {
+                return _.parse(expression, subs);
+            }, numer || Settings.PARSE2NUMBER);
+
+            if(location) {
+                EXPRESSIONS[location - 1] = e;
+            }
+            else {
+                EXPRESSIONS.push(e);
+            }
+
+            return new Expression(e);
+        } finally {
+            disarmTimeout();
         }
-        else {
-            EXPRESSIONS.push(e);
-        }
-
-        return new Expression(e);
     };
     /**
      * Converts expression into rpn form
@@ -12254,6 +12375,7 @@ var nerdamer = (function (imports) {
                 return C[add_on].version;
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return "No module named " + add_on + " found!";
             }
         }
@@ -12296,18 +12418,46 @@ var nerdamer = (function (imports) {
      * @returns {String}
      */
     libExports.getConstant = function (constant) {
-        return String(_.constant[constant]);
+        return String(_.CONSTANTS[constant]);
     };
 
     /**
-     *
-     * @param {String} name The name of the function
-     * @param {Array} params_array A list containing the parameter name of the functions
-     * @param {String} body The body of the function
-     * @returns {Boolean} returns true if succeeded and falls on fail
-     * @example nerdamer.setFunction('f',['x'], 'x^2+2');
+     * Clear added constants from the CONSTANTS object
+     * @returns {Object} Returns the nerdamer object
      */
-    libExports.setFunction = setFunction;
+    libExports.clearConstants = function () {
+        _.initConstants.bind(_);
+        return this;
+    }
+
+    /**
+     *
+     * @param {string | Function} fnName The name of the function
+     * @param {string[] | undefined} fnParams A list containing the parameter name of the functions
+     * @param {string | undefined} body The body of the function
+     * @returns {nerdamer} returns nerdamer if succeeded and falls on fail
+     * @example nerdamer.setFunction('f',['x'], 'x^2+2');
+     *          OR nerdamer.setFunction('f(x)=x^2+2');
+     *          OR function custom(x , y) {
+     *              return x + y;
+     *          }
+     *          nerdamer.setFunction(custom);
+     */
+    libExports.setFunction = function (fnName, fnParams, fnBody) {
+        if(!setFunction(fnName, fnParams, fnBody)) {
+            throw new Error('Failed to set function!');
+        }
+        return this;
+    }
+
+    /**
+     * Clears all added functions
+     * @returns {libExports}
+     */
+    libExports.clearFunctions = function () {
+        clearFunctions();
+        return this;
+    }
 
     /**
      *
@@ -12379,6 +12529,33 @@ var nerdamer = (function (imports) {
         return result;
     };
 
+    /**
+     *
+     * @param {Boolean} asObject
+     * @param {String|String[]} option
+     * @returns {Array}
+     */
+    libExports.functions = function (asObject, option) {
+        var result = asObject ? {} : [];
+        for (var i = 0; i < USER_FUNCTIONS.length; i++) {
+            var params, body;
+            var fnName = USER_FUNCTIONS[i];
+            var fnDef = _.functions[fnName][2];
+            if(fnDef) {
+                ({params, body} = fnDef);
+            } else {
+                var fnString = C.Math2[fnName].toString();
+                ([,params] = /\((.*?)\)/.exec(fnString));
+                params = params.split(',').map(x => x.trim());
+                body = '{JavaScript}';
+            }
+            var fn = fnName + '(' + params.join(', ') + ')=' + body;
+            var eq = text(fn, option);
+            asObject ? result[i + 1] = eq : result.push(eq);
+        }
+        return result;
+    }
+
     //the method for registering modules
     libExports.register = function (obj) {
         var core = this.getCore();
@@ -12429,6 +12606,7 @@ var nerdamer = (function (imports) {
             return RESERVED.indexOf(varname) === -1;
         }
         catch(e) {
+            if (e.message === "timeout") throw error;
             return false;
         }
     };

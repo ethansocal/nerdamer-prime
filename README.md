@@ -6,27 +6,27 @@ but are up to speed with everything Martin did before he archived the original r
 
 The license is unchanged, everything is free under MIT terms. 
 
+The npm js installation point has moved: `npm i nerdamer-prime`.
+
 Our intentions:
 
 To keep Nerdamer in good repair, and make improvements where we need them and where we can. Mostly bug fixes. If you investigate
 some of the bugs in the old repo, you will see that people ask for "things it should be able to do", mostly to do with simplifications.
 This kind of stuff is difficult, and it is more difficult in someone else's codebase. Nerdamer wasn't meant to be a complete symbolic
 algebra system. Its wealth of features can fool you, though. Its features and the fact that it works fast, in the browser and NodeJS,
-makes it still worthwhile. But please understand that it will not achieve a whole lot more than it can do right now. See our 
-[SymType project](https://github.com/together-science/symtype) for a port of SymPy, which will no doubt have other drawbacks as we complete it.
-YMMV.
+makes it still worthwhile. But please understand that it will not achieve a whole lot more than it can do right now. Consider using
+e.g. SymPy in a WASM webworker if you need more. See here for a demo: [SymPy live](https://live.sympy.org/)
 
 We have made some improvements - simplification of logs and squareroots, and bug fixes related to those areas and factoring. Unit tests
 are fixed except for a couple of known flaws. There will be further work in this area. We will also work on vectors, which are not 
 useful for our product [together.math](https://www.together.science/) today. Those will be breaking changes 
-(you are welcome to fork an earlier version). We might move to modules, and at some point will port the code to ECMAScript O-O features.
-Perhaps even TypeScript, but that would be a lot of work. 
+(you are welcome to fork an earlier version). 
 
 If you have a clear bug, file an issue with the code to repro. If you want a new feature - and that includes many things that you will
 think of as "obvious flaws" - file the issue, but we probably won't do it. But someone else can! We will absolutely consider compatible
 PRs, but best to [talk to us](mailto:info@together.science) before you start.
 
-Below follows the original README. Obviously, the npm instructions will install the original Nerdamer. I will update this README if we ever get into the game of releasing nerdamer-prime on npm. Until then, please be aware that the Nerdamer you find on npm follows the original (archived) repo.
+Below follows the original README.
 
 
 Nerdamer
@@ -53,7 +53,7 @@ Or import everything
 ```html
 <script src="all.min.js"></script>  <!-- assuming you've saved the file in the root -->
 ```
-If you're using node.js install it using `npm i nerdamer` and then
+If you're using node.js install it using `npm i nerdamer-prime` (GM: originally `npm i nerdamer`)and then
 
 ```javascript
 // const cannot be used since nerdamer gets modified when other modules are loaded  
@@ -293,20 +293,12 @@ console.log(e.text());
 
 Nerdamer can also handle runtime functions. To do this use the method setFunction. 
 The runtime functions do have symbolic capabilities and support for imaginary numbers. 
-The setfunction method is used as follows:
+The setFunction method is used as follows:
+Mode 1a:
+nerdamer.setFunction( functionDefinition )
 
-nerdamer.setFunction( function_name, parameter_array, function_body ) 
-
-For Example:
-
-```javascript             
-//generate some points
-var f = function(x) { return 5*x-1; }
-console.log(f(1)); //4
-console.log(f(2)); //9 - value to be found
-console.log(f(7)); //34
-
-nerdamer.setFunction('interpolate',['y0','x0','y1','x1','x'],'y0+(y1-y0)*((x-x0)/(x1-x0))')
+```javascript
+nerdamer.setFunction('interpolate(y0,x0,y1,x1,x)=y0+(y1-y0)*((x-x0)/(x1-x0))')
 var answer = nerdamer('interpolate(4,1,34,7,2)').evaluate();
 
 console.log(answer);
@@ -314,15 +306,62 @@ console.log(answer);
 //result: 9
 ```
 
+Mode 1b:
+nerdamer.setFunction( functionName, functionParameters , functionBody )
+
+```javascript      
+//generate some points
+var f = function(x) { return 5*x-1; }
+console.log(f(1)); //4
+console.log(f(2)); //9 - value to be found
+console.log(f(7)); //34
+
+nerdamer.setFunction('interpolate', ['y0','x0','y1','x1','x'], 'y0+(y1-y0)*((x-x0)/(x1-x0))')
+
+var answer = nerdamer('interpolate(4,1,34,7,2)').evaluate();
+
+console.log(answer);
+
+//result: 9
+```
+
+Mode 2:
 Custom functions alternatively be set in following manner.
 
 ```javascript
-nerdamer('hyp(a, b) := sqrt(a^2 + b^2) ');
+nerdamer('hyp(a, b) = sqrt(a^2 + b^2) ');
+
 var result = nerdamer('hyp(3, 4)').evaluate().text();
 console.log(result);
 //result: 5
 ```
 
+Mode 3:
+Custom JavaScript functions can also be set. For example
+
+```javascript
+function hyp(a, b) {
+    return Math.sqrt(a*a + b*b);
+}
+
+nerdamer.setFunction(hyp);
+
+var result = nerdamer('hyp(3, 4)').evaluate().text();
+console.log(result);
+//result: 5
+```
+Also
+```javascript
+function hyp(a, b) {
+    return Math.sqrt(a*a + b*b);
+}
+
+nerdamer(hyp);
+
+var result = nerdamer('hyp(3, 4)').evaluate().text();
+console.log(result);
+//result: 5
+```
 
 If you need to add a constant use the setConstant method
 

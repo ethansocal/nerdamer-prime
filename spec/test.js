@@ -6,6 +6,7 @@ var nerdamer = require('../nerdamer.core.js');
 require('../Algebra.js');
 require('../Calculus.js');
 require('../Solve.js');
+require('../Extra.js');
 console.global = {tsDebugChannels: {notimeout: true}};
 
 
@@ -34,29 +35,20 @@ console.global = {tsDebugChannels: {notimeout: true}};
 // x = nerdamer("3.535401^3.5").evaluate().text();
 // console.log(x);
 
+let text;
 let x;
 
-// x = nerdamer("((a/(a+b)) * (a/(a+c)))/((a/(a+b))+(a/(a+c)))").simplify().text();
-// console.log(x);
-// x = nerdamer("(a/((a+1)*(a+b)))/((1/(a+1))+(1/(a+b)))").simplify().text();
-// console.log(x);
-x = nerdamer("((a*((1/(a+1))+(1/(a+b))))/((a+1)*(a+b)))").simplify().expand().simplify().text();
-console.log(x);
-
-// nerdamer.setVar("x","-sqrt(-1+z)");
-// nerdamer.setVar("y","-2*sqrt(-1+z)+5");
-// console.log(nerdamer("(-1/2)*abs(-5+y)*sqrt(-1+z)^(-1)-1").simplify().text());
-
-// let text = nerdamer("2-2*(x/3)").text()
-// console.log(text);
-// const text = nerdamer("2-2*(x/3)").simplify().text()
-// const text = nerdamer("solve(h=((1)/(2))*(((981)/(100)))*m*(1/((s)^(2)))*((t)^(2)), t)").simplify().text()
-// const text = nerdamer("(530678210/1662132951)*s*sqrt(h^(-1))*sqrt(m)^(-1)").simplify().text()
-
-// const term = "2^y*log(y)+y";
-// const text = nerdamer(term)
-//     .simplify()
-//     .text();
+try {
+    // x = nerdamer("(-1/2)*(-2-8*a)");
+    // x=x.simplify();
+    // console.log(x.text());
+    // return;
+    // x= nerdamer("-sqrt(8/12)")
+    x= nerdamer("simplify(cos(a+b))");
+    console.log(x.text());
+} catch (error) {
+    console.log("error "+error)
+}
 
 // console.log(text);
 console.log("done");

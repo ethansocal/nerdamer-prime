@@ -118,6 +118,9 @@ if((typeof module) !== 'undefined') {
         },
         toLHS: function (expand) {
             expand = !!expand;
+            // if (!expand && (eqn.RHS.isZero())) {
+            //     return this;
+            // }
             var eqn;
             // if(!expand) {
             //     eqn = this.clone();
@@ -243,31 +246,28 @@ if((typeof module) !== 'undefined') {
     core.Expression.prototype.solveFor = function (x) {
         core.Utils.armTimeout();
         try {
-            var symbol;
+            var symbol = this.symbol;
             if(this.symbol instanceof Equation) {
                 //exit right away if we already have the answer
                 //check the LHS
                 if(this.symbol.LHS.isConstant() && this.symbol.RHS.equals(x))
-                    return new core.Expression(this.symbol.LHS);
+                    return [new core.Expression(this.symbol.LHS)];
 
                 //check the RHS
                 if(this.symbol.RHS.isConstant() && this.symbol.LHS.equals(x))
-                    return new core.Expression(this.symbol.RHS);
-
-                //otherwise just bring it to LHS
-                symbol = this.symbol.toLHS(true);
-            }
-            else {
-                symbol = this.symbol;
+                    return [new core.Expression(this.symbol.RHS)];
             }
 
-            const result = solve(symbol, x).map(function (term) {
+            const terms = solve(symbol, x);
+            const result = terms.map(function (term) {
                 term = core.Algebra.Simplify.simplify(_.parse(term));
                 const expr = new core.Expression(term);
                 return expr;
             });
             return result;
         } catch (error) {
+            if (error.message === "timeout") throw error;
+
             console.log(error);
         } finally {
             core.Utils.disarmTimeout();
@@ -313,7 +313,10 @@ if((typeof module) !== 'undefined') {
         version: '2.0.3',
         solutions: [],
         solve: function (eq, variable) {
+            const save = Settings.PARSE2NUMBER;
+            Settings.PARSE2NUMBER = false;
             var solution = solve(eq, String(variable));
+            Settings.PARSE2NUMBER = save;
             return new core.Vector(solution);
             //return new core.Vector(solve(eq.toString(), variable ? variable.toString() : variable));
         },
@@ -621,6 +624,7 @@ if((typeof module) !== 'undefined') {
                         return __.solveNonLinearSystem(eqns);
                     }
                     catch(e) {
+                        if (e.message === "timeout") throw error;
                         if(e instanceof core.exceptions.DivisionByZero) {
                             return __.solveSystemBySubstitution(eqns);
                         }
@@ -768,8 +772,7 @@ if((typeof module) !== 'undefined') {
                             //variable is found then the remainder is the coefficient.
                             if(term.contains(v)) {
                                 var tparts = explode(remove(e, k), v);
-                                // remove(e,k);
-                                // var tparts = explode(eqns[i], v);
+                                k--; // issue #52: decrement k to hit this spot in the array e again next loop
                                 m.set(i, j, _.add(m.get(i, j), tparts[0]));
                             }
                         }
@@ -846,6 +849,29 @@ if((typeof module) !== 'undefined') {
                 _.parse(`(${x})(${w})`),
                 _.parse(`(${x})(${w})^2`)
             ];
+
+
+            // https://www.wikihow.com/Solve-a-Cubic-Equation method 3
+            // const delta0 = `(${b})^2-(3*(${a})(${c}))`;
+            // _.parse(delta0);
+            // const delta1 = `2(${b})^3-(9*(${a})(${b})(${c}))+27((${a})^2)(${d})`;
+            // _.parse(delta1);
+            // // const delta = `(${delta1})^2-(4*(${delta0})^3)/(-27(${a})^2)`;
+
+            // const C = `((sqrt((${delta1})^2-(4*(${delta0})^3))+(${delta1}))/2)^(1/3)`;
+            // _.parse(C);
+            // const u = `(-1+sqrt(-3))/2`
+            // _.parse(u);
+
+            // const result = []
+            // for (let n = 1; n <=3; n++) {
+            //     let x = `-((${b})+ (${u})^${n}*(${C})+(${delta0})/((${u})^${n}*(${C})))/(3(${a}))`;
+            //     console.log(x);
+            //     console.log(x.substring(168));
+            //     result.push(_.parse(x));
+            // }
+            
+            // return result.map((x)=>_.parse(x))
         },
         /**
          * The quartic equation
@@ -1260,6 +1286,7 @@ if((typeof module) !== 'undefined') {
             else if(rhs.group === FN || rhs.group === S || rhs.group === PL) {
                 return [rhs, lhs];
             }
+            return [rhs, lhs];
         },
         sqrtSolve: function (symbol, v) {
             var sqrts = new Symbol(0);
@@ -1294,6 +1321,27 @@ if((typeof module) !== 'undefined') {
         }
     };
 
+    // special case to handle solving equations with exactly one abs() correctly
+    var absSolve = function (eqns, solve_for, depth, fn) {
+        const eq = eqns.toString();
+        const match = eq.match(/(?<![a-z])abs/g);
+        // not found or more than 1 occurrence? get out!
+        if (!match || match.length > 2) {
+            return null;
+        }
+        // can handle only abs at beginning
+        if ((eqns.LHS.group !== FN || false)&& eqns.RHS.group !== FN) {
+            return null;
+        }
+        // we have exactly one abs. kill it and make two cases
+        const eqplus = eqns.constructor(eq.replace(/(?<![a-z])abs/, ""));
+        const eqminus = eqns.constructor(eq.replace(/(?<![a-z])abs/, "(-1)"));
+
+        const resultplus = solve(eqplus, solve_for, null, depth, fn);
+        const resultminus = solve(eqminus, solve_for, null, depth, fn);
+
+        return [resultminus, resultplus];
+    }
     /*
      * 
      * @param {String[]|String|Equation} eqns
@@ -1321,31 +1369,6 @@ if((typeof module) !== 'undefined') {
             return solutions;
         }
 
-        //make preparations if it's an Equation
-        if(eqns instanceof Equation) {
-            //if it's zero then we're done
-            if(eqns.isZero()) {
-                return [new Symbol(0)];
-            }
-            //if the lhs = x then we're done
-            if(eqns.LHS.equals(solve_for) && !eqns.RHS.contains(solve_for, true)) {
-                return [eqns.RHS];
-            }
-            //if the rhs = x then we're done
-            if(eqns.RHS.equals(solve_for) && !eqns.LHS.contains(solve_for, true)) {
-                return [eqns.LHS];
-            }
-        }
-
-        //unwrap the vector since what we want are the elements
-        if(eqns instanceof core.Vector)
-            eqns = eqns.elements;
-        solve_for = solve_for || 'x'; //assumes x by default
-        //If it's an array then solve it as a system of equations
-        if(isArray(eqns)) {
-            return __.solveSystem.apply(undefined, arguments);
-        }
-
         // Parse out functions. Fix for issue #300
         // eqns = core.Utils.evaluate(eqns);
         solutions = solutions || [];
@@ -1356,9 +1379,6 @@ if((typeof module) !== 'undefined') {
         // then we're done. Issue #555
         var known = {};
         known[solve_for] = 0;
-        if(isSymbol(eqns) && evaluate(eqns.getDenom(), known).equals(0) === true) {
-            return solutions;
-        }
 
         // Is used to add solutions to set. 
         // TODO: Set is now implemented and should be utilized
@@ -1403,6 +1423,45 @@ if((typeof module) !== 'undefined') {
             }
         };
 
+
+        //make preparations if it's an Equation
+        if(eqns instanceof Equation) {
+            // see absSolve above
+            // the rest of solve does a crappy job at solving abs, 
+            // so we wrap it here if necessary
+            let absResult = absSolve(eqns, solve_for, solutions, depth, fn);
+            if (absResult) {
+                add_to_result(absResult);
+                return solutions;
+            }
+
+            //if it's zero then we're done
+            if(eqns.isZero()) {
+                return [new Symbol(0)];
+            }
+            //if the lhs = x then we're done
+            if(eqns.LHS.equals(solve_for) && !eqns.RHS.contains(solve_for, true)) {
+                return [eqns.RHS];
+            }
+            //if the rhs = x then we're done
+            if(eqns.RHS.equals(solve_for) && !eqns.LHS.contains(solve_for, true)) {
+                return [eqns.LHS];
+            }
+        }
+
+        //unwrap the vector since what we want are the elements
+        if(eqns instanceof core.Vector)
+            eqns = eqns.elements;
+        solve_for = solve_for || 'x'; //assumes x by default
+        //If it's an array then solve it as a system of equations
+        if(isArray(eqns)) {
+            return __.solveSystem.apply(undefined, arguments);
+        }
+
+        if(isSymbol(eqns) && evaluate(eqns.getDenom(), known).equals(0) === true) {
+            return solutions;
+        }
+
         // Maybe we get lucky. Try the point at the function. If it works we have a point
         // If not it failed
         if(eqns.group === S && eqns.contains(solve_for)) {
@@ -1413,6 +1472,7 @@ if((typeof module) !== 'undefined') {
                 add_to_result(new Symbol(0));
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 // Do nothing;
             }
 
@@ -1711,7 +1771,8 @@ if((typeof module) !== 'undefined') {
                     }
 
                     // sort by numerical value to be ready for uniquefy filter
-                    solutions.sort((a,b)=>{
+                    solutions
+                        .sort((a,b)=>{
                         const sa = a.text("decimals");
                         const sb = b.text("decimals");
                         const xa = Number(sa);
@@ -1726,10 +1787,15 @@ if((typeof module) !== 'undefined') {
                         return xa-xb;
                     });
 
+                    // round to 15 digits
+                    solutions = solutions
+                        .map((a)=>(!a.isConstant()?a:new Symbol(Number(Number(a).toPrecision(15)))));
+
                     // uniquefy to epsilon
                     // console.log("solutions: "+solutions);
-                    solutions = solutions.filter((x,i,a)=>{
-                        x = Number(x);
+                    solutions = solutions
+                        .filter((x,i,a)=>{
+                        x = Number(Number(x).toPrecision(15));
                         let x2 = Number(a[i-1]);
                         // console.log("   x: "+x)
                         if (i === 0 || isNaN(x) || isNaN(x2)) {
@@ -1743,6 +1809,7 @@ if((typeof module) !== 'undefined') {
                     // console.log("solutions after filter: "+solutions);
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     console.log(e);
                 }
             }
@@ -1757,8 +1824,9 @@ if((typeof module) !== 'undefined') {
                     var factored = core.Algebra.Factor.factorInner(eq.clone());
                     let test = _.expand(_.parse(factored));
                     let test2 = _.expand(eq.clone());
+                    let diff = _.subtract(test, test2);
                     let validFactorization = true;
-                    if (!test.equals(test2)) {
+                    if (!diff.equals(0)) {
                         // console.log("factored: "+test);
                         // console.log("original: "+test2);
                         validFactorization = false;
@@ -1822,6 +1890,7 @@ if((typeof module) !== 'undefined') {
 
                 }
                 catch(e) { /*something went wrong. EXITING*/
+                    if (e.message === "timeout") throw error;
                     ;
                 }
             }
@@ -1832,7 +1901,10 @@ if((typeof module) !== 'undefined') {
                     var rhs = rw[1];
                     if(lhs.group === FN) {
                         if(lhs.fname === 'abs') {
-                            add_to_result([rhs.clone(), rhs.negate()]);
+                            // solve only if solve_for was the only arg
+                            if (lhs.args[0].toString() === solve_for) {
+                                add_to_result([rhs.clone(), rhs.negate()]);
+                            }
                         }
                         else if(lhs.fname === 'sin') {
                             //asin
@@ -1869,6 +1941,7 @@ if((typeof module) !== 'undefined') {
                     }
                 }
                 catch(error) {
+                    if (error.message === "timeout") throw error;
                     //Let's try this another way
                     try {
                         //1. if the symbol is in the form a*b*c*... then the solution is zero if 
@@ -1889,7 +1962,8 @@ if((typeof module) !== 'undefined') {
                         }
                     }
                     catch(error) {
-                        ;
+                        if (error.message === "timeout") throw error;
+                        console.log("error "+error);
                     }
                 }
             }
@@ -1917,6 +1991,7 @@ if((typeof module) !== 'undefined') {
                     return true;
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     return false;
                 }
             });

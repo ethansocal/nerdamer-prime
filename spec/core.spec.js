@@ -1875,12 +1875,6 @@ describe('Nerdamer core', function () {
         //Note: this may break at some point when big numbers are implemented 
         expect(nerdamer('Ci(x)+x').buildFunction()(4)).toEqual(3.8590183021130704);
     });
-    it('should handle nested functions', function() {
-        nerdamer.setFunction("a", ["x"], "2*x")
-        nerdamer.setFunction("b", ["x"], "x^2")
-
-        expect(nerdamer("a(b(x))").text()).toEqual('2*x^2');
-    });
     it('should handle percent', function() {
         expect(nerdamer('10%+20%').toString()).toEqual('3/10');
         expect(nerdamer('a%/10%').toString()).toEqual('(1/10)*a');
@@ -1897,6 +1891,174 @@ describe('Nerdamer core', function () {
     });
     it('should unwrap even abs', function() {
         expect(nerdamer('(3*abs(x))^2').toString()).toEqual('3*x^2');
+    });
+
+    describe('User constants,', function () {
+        const NerdamerTypeError = nerdamer.getCore().exceptions.NerdamerTypeError;
+
+        afterEach(function () {
+            nerdamer.clearConstants();
+        });
+
+        it('should add user constant', function () {
+            nerdamer.setConstant('G', '9.81');
+            expect(nerdamer('G').text()).toEqual('9.81');
+        });
+
+        it('should get user constant', function () {
+            nerdamer.setConstant('G', '9.81');
+            expect(nerdamer.getConstant('G')).toEqual('9.81');
+        });
+
+        it('constant should be number', function () {
+            expect(function testError() {nerdamer.setConstant('G', '2*pi')}).toThrowError(NerdamerTypeError);
+        });
+
+        it('should clear user constants', function () {
+            nerdamer.setConstant('G', '9.81');
+            nerdamer.clearConstants();
+            expect(nerdamer('G').text()).toEqual('9.81');
+        });
+    });
+
+    describe('User variables,', function () {
+        afterEach(function () {
+            nerdamer.clearVars();
+        });
+
+        it('should add user variable', function () {
+            nerdamer.setVar('aa', 'a*a');
+            expect(nerdamer('aa').text()).toEqual('a^2');
+        });
+
+        it('should get user variable', function () {
+            nerdamer.setVar('aa', 'a*a');
+            expect(nerdamer.getVar('aa').text()).toEqual('a^2');
+        });
+
+        it('constant should not be alredy declared as constant', function () {
+            nerdamer.setConstant('G', '9.81');
+            expect(function testError() {nerdamer.setVar('G', 'a*a')}).toThrow();
+        });
+
+        it('should clear user variable', function () {
+            nerdamer.setVar('aa', 'a*a');
+            nerdamer.clearVars();
+            expect(nerdamer('aa').text()).toEqual('aa');
+        });
+    });
+
+    describe('User functions 1', function () {
+        afterEach(function () {
+            nerdamer.clearFunctions();
+        });
+
+        it('should handle nested functions', function () {
+            nerdamer.setFunction("a", ["x"], "2*x");
+            nerdamer.setFunction("b", ["x"], "x^2");
+
+            expect(nerdamer("a(b(x))").text()).toEqual('2*x^2');
+        });
+        it('should handle nested functions version 2', function () {
+            nerdamer.setFunction("a(x)=2*x");
+            nerdamer.setFunction("b(x)=x^2");
+
+            expect(nerdamer("a(b(x))").text()).toEqual('2*x^2');
+        });
+        it("should clear nested functions", function () {
+            nerdamer.setFunction("c(x)=2*x");
+            expect(nerdamer("sin(1)").evaluate().text()).toEqual('0.841470984807896479');
+            expect(nerdamer("c(t)").text()).toEqual('2*t');
+
+            nerdamer.clearFunctions();
+            expect(nerdamer("sin(1)").evaluate().text()).toEqual('0.841470984807896479');
+            expect(nerdamer("c(t)").text()).toEqual('c*t');
+        });
+    });
+
+    describe('User functions 2,', function() {
+        afterEach(function () {
+            nerdamer.clearFunctions();
+        });
+
+        it('should add function type 1', function() {
+            nerdamer.setFunction('f', ['x', 'y'], '2*x+y');
+
+            expect(nerdamer('f(2, 3)').toString()).toEqual('7');
+        })
+
+        it('should add function type 2a', function() {
+            nerdamer.setFunction('f(x, y)=2*x+y');
+            nerdamer.setFunction(' g(x, y) = 2 * x + y ');
+
+            expect(nerdamer('f(2, 3)').toString()).toEqual('7');
+            expect(nerdamer('g(2, 3)').toString()).toEqual('7');
+        })
+
+        it('should add function type 2b', function() {
+            nerdamer.setFunction('f(x, y):=2*x+y');
+            nerdamer.setFunction(' g(x, y) := 2 * x + y ');
+
+            expect(nerdamer('f(2, 3)').toString()).toEqual('7');
+            expect(nerdamer('g(2, 3)').toString()).toEqual('7');
+        })
+
+        it('should use JavaScript functions', function() {
+            function jsA(a,b) {
+                return a+b;
+            }
+            function jsB(x,y) {
+                return x**y;
+            }
+
+            nerdamer.setFunction(jsA);
+            nerdamer.setFunction(jsB);
+
+            expect(nerdamer('jsA(3, 5)').evaluate().text()).toEqual('8');
+            expect(nerdamer('jsB(3, 5)').evaluate().text()).toEqual('243');
+        });
+    });
+
+    describe('User functions 3,', function() {
+        afterEach(function () {
+            nerdamer.clearFunctions();
+        });
+
+        it('should add function string type', function() {
+            nerdamer('a1(x, y)=2*x+y');
+            nerdamer('b1(x, y):=3*x+y');
+            nerdamer(' c1(x, y) = 2 * x + y ');
+            nerdamer(' d1(x, y) := 3 * x + y ');
+
+            expect(nerdamer('a1(2, 1)').toString()).toEqual('5');
+            expect(nerdamer('b1(2, 1)').toString()).toEqual('7');
+            expect(nerdamer('c1(2, 1)').toString()).toEqual('5');
+            expect(nerdamer('d1(2, 1)').toString()).toEqual('7');
+        })
+
+        it('should use JavaScript functions', function() {
+            function jsA(a,b) {
+                return a+b;
+            }
+            function jsB(x,y) {
+                return x**y;
+            }
+            function h(x) {
+                return 4*x;
+            }
+
+            nerdamer.setFunction(jsA);
+            nerdamer.setFunction(jsB);
+            nerdamer.setFunction(h);
+
+            expect(nerdamer('jsA(3, 5)').text()).toEqual('jsA(3,5)');
+            expect(nerdamer('jsB(3, 5)').text()).toEqual('jsB(3,5)');
+            expect(nerdamer('h(2)').text()).toEqual('h(2)');
+
+            expect(nerdamer('jsA(3, 5)').evaluate().text()).toEqual('8');
+            expect(nerdamer('jsB(3, 5)').evaluate().text()).toEqual('243');
+            expect(nerdamer('h(2)').evaluate().text()).toEqual('8');
+        });
     });
 });
 
@@ -2970,7 +3132,7 @@ describe('omit brackets for functions', function() {
     });
 });
 
-describe('together.math functionalituy', function() {
+describe('together.math functionality', function() {
     it('should simplify squareroots of baseunit_ squares', function() {
         expect(nerdamer('sqrt(baseunit_kg^2)').toString()).toEqual('baseunit_kg');
         expect(nerdamer('sqrt(4*baseunit_kg^2)').toString()).toEqual('2*baseunit_kg');
@@ -2995,6 +3157,9 @@ describe('misc and regression tests', function() {
         // issue #39
         expect(nerdamer("3.535401^3.535401").evaluate().text()).toEqual('86.8861711133581315310');
         expect(nerdamer("4.5354^3.535401").evaluate().text()).toEqual('209.603932373756644162');
+
+        // issue 53
+        expect(nerdamer("arg(1/i)").text()).toEqual('-0.5*pi');
     });
 });
 

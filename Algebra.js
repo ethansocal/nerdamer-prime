@@ -830,6 +830,7 @@ if((typeof module) !== 'undefined') {
             }
         }
         catch(e) {
+            if (e.message === "timeout") throw error;
         }
         ;
     };
@@ -2160,6 +2161,8 @@ if((typeof module) !== 'undefined') {
                     }
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
+
                     ;
                 }
 
@@ -2270,6 +2273,7 @@ if((typeof module) !== 'undefined') {
                     }
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                 }
                 ;
 
@@ -2280,9 +2284,11 @@ if((typeof module) !== 'undefined') {
                 let originalFactors = factors?[...factors]:null;
                 try {
                     let retval = __.Factor.factorInner(symbol, factors);
-                    retval.pushMinus();
+                    retval = retval.pushMinus();
                     return retval;
                 } catch (error) {
+                    if (error.message === "timeout") throw error;
+
                     if (factors) {
                         factors.splice(0, factors.length, ...originalFactors);
                     }
@@ -2911,6 +2917,7 @@ if((typeof module) !== 'undefined') {
                     return poly.toSymbol();
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     return untouched;
                 }
             },
@@ -3134,6 +3141,7 @@ if((typeof module) !== 'undefined') {
                     }
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     ;
                 }
 
@@ -3932,6 +3940,7 @@ if((typeof module) !== 'undefined') {
                 return [quot, rem];
             }
             catch(e) {
+                if (e.message === "timeout") throw error;
                 return fail;
             }
 
@@ -4108,6 +4117,7 @@ if((typeof module) !== 'undefined') {
                     return retval;
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     //try to group symbols
                     try {
                         if(symbol.isComposite()) {
@@ -4131,6 +4141,7 @@ if((typeof module) !== 'undefined') {
                         }
                     }
                     catch(e2) {
+                        if (e2.message === "timeout") throw error;
                     }
                     ;
                 }
@@ -4263,7 +4274,8 @@ if((typeof module) !== 'undefined') {
             unstrip: function (cp, symbol) {
                 var c = cp[0];
                 var p = cp[1];
-                return _.multiply(c, _.pow(symbol, p));
+                const result = _.multiply(c, _.pow(symbol, p));
+                return result;
             },
             complexSimp: function (num, den) {
                 var ac, bd, bc, ad, cd, r1, r2, i1, i2;
@@ -4281,7 +4293,11 @@ if((typeof module) !== 'undefined') {
                 return _.divide(_.add(_.add(ac, bd), _.multiply(_.subtract(bc, ad), Symbol.imaginary())), cd);
             },
             trigSimp: function (symbol) {
-                if(symbol.containsFunction(['cos', 'sin', 'tan'])) {
+                let workDone = true;
+                let iterations = 0;
+                while (workDone && symbol.containsFunction(['cos', 'sin', 'tan'])) {
+                    iterations++;
+                    workDone = false;
                     symbol = symbol.clone();
                     //remove power and multiplier
                     var sym_array = __.Simplify.strip(symbol);
@@ -4300,33 +4316,122 @@ if((typeof module) !== 'undefined') {
 
                         //put back the power and multiplier and return
                         retval = _.pow(_.multiply(new Symbol(symbol.multiplier), sym), new Symbol(symbol.power));
-                    }
-                    else if(symbol.group === CB) {
-
+                        workDone = retval.text() !== symbol.text();
+                    } else if(symbol.group === CB) {
                         var n = symbol.getNum();
                         var d = symbol.getDenom();
 
-                        //try for tangent
+                        //try for tangent or fractions with tangent
                         if(n.fname === 'sin' && d.fname === 'cos' && n.args[0].equals(d.args[0]) && n.power.equals(d.power)) {
-                            retval = _.parse(core.Utils.format('({0})*({1})*tan({2})^({3})', d.multiplier, n.multiplier, n.args[0], n.power));
-                        }
-                        if(retval.group === CB) {
+                            retval = _.parse(core.Utils.format('(({1})/({0}))*tan({2})^({3})', d.multiplier, n.multiplier, n.args[0], n.power));
+                            workDone = true;
+                        } else if(n.fname === 'tan' && d.fname === 'sin' && n.args[0].equals(d.args[0]) && n.power.equals(d.power)) {
+                            retval = _.parse(core.Utils.format('(({1})/({0}))*cos({2})^(-({3}))', d.multiplier, n.multiplier, n.args[0], n.power));
+                            workDone = true;
+                        } else {
                             var t = new Symbol(1);
                             retval.each(function (x) {
                                 if(x.fname === 'tan') {
                                     x = _.parse(core.Utils.format('({0})*sin({1})^({2})/cos({1})^({2})', x.multiplier, __.Simplify._simplify(x.args[0]), x.power));
+                                    workDone = true;
+                                } 
+                                else {
+                                    if (x.containsFunction(['cos', 'sin', 'tan'])) {
+                                        //rewrite the function
+                                        const y = __.Simplify.trigSimp(x);
+                                        if (!x.equals(y)) {
+                                            x = y;
+                                            workDone = true;
+                                        }
+                                    }
                                 }
                                 t = _.multiply(t, x);
                             });
                             retval = t;
                         }
                     }
-
+                    else if((symbol.fname === 'cos' || symbol.fname === 'sin') &&
+                            (symbol.args[0].group == CP)) {
+                        // capture cos(x-pi/2) => sin(x) and sin(x+pi/2) = cos(x)
+                        // but generalized
+                        // test the sum for presence of a "n*pi/2" summands
+                        let count = 0;
+                        let newArg = new Symbol(0);
+                        let piOverTwo = _.parse('pi/2');
+                        symbol.args[0].each((x)=>{
+                            let c = _.divide(x.clone(), piOverTwo.clone());
+                            c = __.Simplify._simplify(c);
+                            c = core.Utils.evaluate(c);
+                            if (isInt(c)) {
+                                count += c.multiplier.num.value;
+                            } else {
+                                newArg = _.add(newArg, x);
+                            }
+                        });
+                        if (count) {
+                            count += (symbol.fname === 'cos')?1:0;
+                            count = count % 4;
+                            count += (count < 0)?4:0;
+                            // console.log(count);
+                            // debugger;
+                            const results = [
+                                "sin({0})",
+                                "cos({0})",
+                                "-sin({0})",
+                                "-cos({0})",
+                            ];
+                            const s = core.Utils.format(results[count], newArg);
+                            retval = _.parse(s);
+                            workDone = true;
+                        } else if (Object.keys(symbol.args[0].symbols).length > 1) {
+                            // apply sin(a+-b) => sin(a)cos(b)+-cos(a)sin(b)
+                            //   and cos(a+-b) => cos(a)cos(b)-+sin(a)sin(b)
+                            const arg = symbol.args[0].clone();
+                            const summands = Object.values(arg.symbols);
+                            const a = summands[0];
+                            const b = summands.slice(1);
+                            const bStr = b.map((x)=>"("+x.text()+")").join("+");
+                            let s;
+                            if (symbol.fname === 'sin') {
+                                s = core.Utils.format("sin({0})cos({1})+sin({1})cos({0})", a, bStr);
+                            } else {
+                                s = core.Utils.format("cos({0})cos({1})-sin({1})sin({0})", a, bStr);
+                            }
+                            retval = _.parse(s);
+                            workDone = true;
+                        }
+                    } else if((symbol.fname === 'cos' || symbol.fname === 'sin') &&
+                            (symbol.args[0].multiplier.sign() == -1)) {
+                        // sin(-x) => -sin(x), cos(-x) => cos(x)
+                        // remove the minus from the argument
+                        const newArg = symbol.args[0].clone().negate();
+                        // make the new trig call
+                        let s = core.Utils.format(symbol.fname+"({0})", newArg);
+                        if (symbol.fname === 'sin') {
+                            s = "-"+s;
+                        }
+                        retval = _.parse(s);
+                        // continue with the simpler form
+                        workDone = true;
+                    } if(symbol.fname === 'sin' &&
+                        symbol.args[0].multiplier.equals(2) &&
+                        !symbol.args[0].equals(2)) {
+                        // sin(2x) => 2sin(x)cos(x)
+                        // remove the minus from the argument
+                        const newArg = symbol.args[0].clone().toUnitMultiplier();
+                        // make the new trig call
+                        let s = core.Utils.format("2sin({0})cos({0})", newArg);
+                        retval = _.parse(s);
+                        // continue with the simpler form
+                        workDone = true;
+                    }
 
                     retval = __.Simplify.unstrip(sym_array, retval).distributeMultiplier();
-
                     symbol = retval;
-                }
+                    if (iterations > 10) {
+                        debugger;
+                    }
+                };
 
                 return symbol;
             },
@@ -4334,7 +4439,7 @@ if((typeof module) !== 'undefined') {
                 // console.log("----- log term: "+ term.text());
                 // note: use symbol.equals
                 if (term.value === "1" || term.value === 1) {
-                    return term;
+                    return new Symbol(0);
                 }
                 // work on all factors of the arg term
                 // inintialize the sum
@@ -4345,7 +4450,7 @@ if((typeof module) !== 'undefined') {
                 term.toUnitMultiplier();
                 // console.log("term with unit multiplier: "+term);
 
-                if (m) {
+                if (!m.equals(1)) {
                     let a = core.Utils.format('({0}({1}))', fn, m);
                     // console.log("m transformed: "+a);
                     r = _.add(r, _.parse(a));
@@ -4388,6 +4493,7 @@ if((typeof module) !== 'undefined') {
                     // console.log();
                     // console.log("Initial: "+symbol.text());
                     // remove power and multiplier
+                    let original = symbol.clone();
                     var sym_array = __.Simplify.strip(symbol);
                     symbol = sym_array.pop();
 
@@ -4400,8 +4506,10 @@ if((typeof module) !== 'undefined') {
                     let fn = symbol.fname;
 
                     let retval = __.Simplify.logArgSimp(fn, n);
-                    let rd = __.Simplify.logArgSimp(fn, d);
-                    retval = _.subtract(retval, rd);
+                    if (!d.equals(1)) {
+                        let rd = __.Simplify.logArgSimp(fn, d);
+                        retval = _.subtract(retval, rd);
+                    }
 
                     retval = __.Simplify.unstrip(sym_array, retval).distributeMultiplier();
                     symbol = retval;
@@ -4704,6 +4812,7 @@ if((typeof module) !== 'undefined') {
                     // debugout("");
                     return retval;
                 } catch (error) {
+                    if (error.message === "timeout") throw error;
                     symbol = original;
                     debugout("crash in sqrtsimp, symbol: "+symbol.text()+" "+error.msg);
                     return symbol;
@@ -4765,11 +4874,14 @@ if((typeof module) !== 'undefined') {
             },
             simplify: function (symbol) {
                 let retval = __.Simplify._simplify(symbol);
-                retval.pushMinus();
+                retval = retval.pushMinus();
                 retval = _.parse(retval);
                 return retval;
             },
             _simplify: function (symbol) {
+                // debuglevel(1);
+                // debugout("input to _simplify: "+symbol.text());
+                // try {
                 //remove the multiplier to make calculation easier;
                 var sym_array = __.Simplify.strip(symbol.clone());
                 symbol = sym_array.pop();
@@ -4779,6 +4891,7 @@ if((typeof module) !== 'undefined') {
                 if(symbol.isConstant() || symbol.group === core.groups.S) {
                     sym_array.push(symbol);
                     var ret = __.Simplify.unstrip(sym_array, symbol);
+                    // debugout("final result: "+ret.text());
                     return ret;
                 }
                 // console.log("array: "+sym_array);
@@ -4823,20 +4936,24 @@ if((typeof module) !== 'undefined') {
                         r = _.add(r, s);
                     });
                     simplified = r;
-                    //place back original multiplier and return
-                    simplified = __.Simplify.unstrip(sym_array, simplified);
                     //mult on back the multiplier we saved here
                     simplified = _.multiply(simplified, new Symbol(m));
                     if (simplified.multiplier.equals(-1)) {
                         simplified.distributeMultiplier();
                     }
+                    //place back original multiplier and return
+                    simplified = __.Simplify.unstrip(sym_array, simplified);
+                    // debugout("final result: "+simplified.text());
                     return simplified;
                 }  
 
                 //place back original multiplier and return
                 simplified = __.Simplify.unstrip(sym_array, simplified);
-                // console.log("final result: "+simplified.text());
+                // debugout("final result: "+simplified.text());
                 return simplified;
+                // } finally {
+                //     // debuglevel(-1);
+                // }
             }
         },
 
@@ -4864,6 +4981,7 @@ if((typeof module) !== 'undefined') {
             }
             return retval;
         } catch (error) {
+            if (error.message === "timeout") throw error;
             return this;
         } finally {
             core.Utils.disarmTimeout();
@@ -4996,6 +5114,7 @@ if((typeof module) !== 'undefined') {
                         return sq.f;
                     }
                     catch(e) {
+                        if (e.message === "timeout") throw error;
                         return x;
                     }
                 };

@@ -508,6 +508,9 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                 }
                 else if(g === FN && symbol.power.equals(1)) {
                     // Table of known derivatives
+                    let m = symbol.multiplier.clone();
+                    symbol.toUnitMultiplier();
+
                     switch(symbol.fname) {
                         case LOG:
                             cp = symbol.clone();
@@ -551,14 +554,11 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                             symbol = _.parse('(1+(' + text(symbol.args[0]) + ')^2)^(-1)');
                             break;
                         case ABS:
-                            m = symbol.multiplier.clone();
-                            symbol.toUnitMultiplier();
                             //depending on the complexity of the symbol it's easier to just parse it into a new symbol
                             //this should really be readdressed soon
                             b = symbol.args[0].clone();
                             b.toUnitMultiplier();
                             symbol = _.parse(inBrackets(text(symbol.args[0])) + '/abs' + inBrackets(text(b)));
-                            symbol.multiplier = m;
                             break;
                         case 'parens':
                             //see product rule: f'.g goes to zero since f' will return zero. This way we only get back
@@ -584,11 +584,11 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                             break;
                         case CSCH:
                             var arg = String(symbol.args[0]);
-                            return _.parse('-coth(' + arg + ')*csch(' + arg + ')');
+                            symbol = _.parse('-coth(' + arg + ')*csch(' + arg + ')');
                             break;
                         case COTH:
                             var arg = String(symbol.args[0]);
-                            return _.parse('-csch(' + arg + ')^2');
+                            symbol = _.parse('-csch(' + arg + ')^2');
                             break;
                         case 'asinh':
                             symbol = _.parse('(sqrt(1+(' + text(symbol.args[0]) + ')^2))^(-1)');
@@ -673,6 +673,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                         default:
                             symbol = _.symfunction('diff', [symbol, wrt]);
                     }
+                    symbol.multiplier = symbol.multiplier.multiply(m);
                 }
                 else if(g === EX || g === FN && isSymbol(symbol.power)) {
                     var value;
@@ -1268,6 +1269,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                                                 retval = __.integrate(fx, u).sub(u, sq.a);
                                             }
                                             catch(e) {
+                                                if (e.message === "timeout") throw error;
                                                 __.integration.stop();
                                             }
                                         }
@@ -1568,6 +1570,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                                         retval = __.integration.u_substitution(symbols, dx);
                                     }
                                     catch(e) {/* failed :`(*/
+                                        if (e.message === "timeout") throw error;
                                         ;
                                     }
 
@@ -2117,6 +2120,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                 }
 
                 catch(error) {
+                    if (error.message === "timeout") throw error;
                     //do nothing if it's a NoIntegralFound error otherwise let it bubble
                     if(!(error instanceof NoIntegralFound || error instanceof core.exceptions.DivisionByZero))
                         throw error;
@@ -2133,6 +2137,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                     return _.parse(integral, vars);
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     //it failed for some reason so return the limit
                     var lim = __.Limit.limit(integral, dx, point);
                     return lim;
@@ -2293,6 +2298,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                     retval = f.sub(x, lim);
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     //Nope. No go, so just return the unsubbed function so we can test the limit instead.
                     retval = f;
                 }
@@ -2364,6 +2370,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
 
                         }
                         catch(e) { /*Nothing. Maybe we tried to divide by zero.*/
+                            if (e.message === "timeout") throw error;
                         }
                         ;
 
@@ -2421,6 +2428,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                                             evaluates = true;
                                         }
                                         catch(e) {
+                                            if (e.message === "timeout") throw error;
 
                                             evaluates = false;
                                         }
@@ -2566,6 +2574,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                                             _lim = __.Limit.limit(sym, x, lim, depth);
                                         }
                                         catch(e) {
+                                            if (e.message === "timeout") throw error;
                                             _lim = __.Limit.diverges();
                                         }
 
@@ -2573,6 +2582,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                                             retval = _.add(retval, _lim);
                                         }
                                         catch(e) {
+                                            if (e.message === "timeout") throw error;
                                             if(depth++ > Settings.max_lim_depth) {
                                                 return;
                                             }
@@ -2594,6 +2604,7 @@ if((typeof module) !== 'undefined' && typeof nerdamer === 'undefined') {
                         retval = _.symfunction('limit', [symbol, x, lim]);
                 }
                 catch(e) {
+                    if (e.message === "timeout") throw error;
                     //if all else fails return the symbolic function
                     retval = _.symfunction('limit', [symbol, x, lim]);
                 }
